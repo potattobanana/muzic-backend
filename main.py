@@ -28,40 +28,41 @@ def get_audio(video_id: str):
         'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
-        'extract_flat': False,
         'skip_download': True,
+        'youtube_include_dash_manifest': False,
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            
-            # Get best audio format
-            formats = info.get('formats', [])
-            audio_formats = [
-                f for f in formats
-                if f.get('acodec') != 'none' and f.get('vcodec') == 'none'
-            ]
-            
-            if not audio_formats:
-                # Fallback to any format with audio
-                audio_formats = [f for f in formats if f.get('acodec') != 'none']
-            
-            if not audio_formats:
-                raise HTTPException(status_code=404, detail="No audio found")
-            
-            # Sort by quality (abr = audio bitrate)
-            audio_formats.sort(key=lambda f: f.get('abr') or 0, reverse=True)
-            best = audio_formats[0]
-            
+            info = ydl.extract_info(
+                f"https://www.youtube.com/watch?v={video_id}",
+                download=False
+            )
+
+            # Get the selected format URL directly
+            url = info.get('url')
+            if not url:
+                # Try getting from formats list
+                formats = info.get('formats', [])
+                # Prefer audio-only formats
+                audio_only = [f for f in formats if f.get('vcodec') == 'none' and f.get('url')]
+                if audio_only:
+                    audio_only.sort(key=lambda f: f.get('abr') or f.get('tbr') or 0, reverse=True)
+                    url = audio_only[0]['url']
+                elif formats:
+                    # Fall back to any format with a URL
+                    url = formats[-1]['url']
+
+            if not url:
+                raise HTTPException(status_code=404, detail="No audio URL found")
+
             return {
-                "url": best['url'],
+                "url": url,
                 "title": info.get('title'),
                 "duration": info.get('duration'),
                 "thumbnail": info.get('thumbnail'),
-                "ext": best.get('ext', 'webm'),
-                "abr": best.get('abr'),
             }
+
     except yt_dlp.utils.DownloadError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
